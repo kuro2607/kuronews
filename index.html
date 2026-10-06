@@ -59,7 +59,7 @@ header,main,footer{position:relative;z-index:10}
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div>
       <h1 class="text-3xl font-extrabold title-glow">Anime News Wire</h1>
-      <p class="text-sm text-[#9fb39a]">Live updates and announcements from across the anime community.</p>
+      <p class="text-sm text-[#9fb39a]">Live updates and announcements from across top anime publications.</p>
     </div>
     <div class="flex items-center gap-2">
       <button class="btn2 text-xs" onclick="forceReload()">
@@ -87,16 +87,16 @@ header,main,footer{position:relative;z-index:10}
 
 <footer class="max-w-7xl mx-auto px-4 py-8 mt-12 border-t border-[#1d2a1d] text-sm text-[#9fb39a]">
   <div class="flex flex-col md:flex-row items-center justify-between gap-4">
-    <p class="text-xs text-[#7e9179]">KuroNews provides real-time headlines with full source attribution. Images belong to their respective copyright holders.</p>
+    <p class="text-xs text-[#7e9179]">KuroNews provides real-time headlines with source attribution. Content rights belong to their publishers.</p>
     <div class="flex flex-wrap gap-2" id="net"></div>
   </div>
 </footer>
 
 <script>
-// Clear old cache versions automatically
+// Auto-clear older cache versions so clean news is fetched
 try {
   Object.keys(localStorage).forEach(k => {
-    if (k.startsWith('kn_') && !k.startsWith('kn_v11_')) localStorage.removeItem(k);
+    if (k.startsWith('kn_') && !k.startsWith('kn_v14_')) localStorage.removeItem(k);
   });
 } catch(e) {}
 
@@ -110,12 +110,12 @@ const NET = [
 ];
 $('#net').innerHTML = NET.map(x => `<a class="chip text-xs" href="${x.u}">${x.n}</a>`).join('');
 
-// Multiple sources configured for guaranteed visuals
+// 4 Major anime news publishers with varied coverage
 const FEEDS = [
-  { n: 'Crunchyroll', type: 'rss', u: 'https://cr-news-api-service.prd.crunchyrollsvc.com/v1/en-US/rss' },
-  { n: 'Top Airing', type: 'jikan_airing' },
-  { n: 'Industry News', type: 'jikan_news' },
-  { n: 'ComicBook Anime', type: 'rss', u: 'https://comicbook.com/anime/rss.xml' }
+  { n: 'Crunchyroll', u: 'https://cr-news-api-service.prd.crunchyrollsvc.com/v1/en-US/rss' },
+  { n: 'Anime Corner', u: 'https://animecorner.me/feed/' },
+  { n: 'ComicBook Anime', u: 'https://comicbook.com/anime/rss.xml' },
+  { n: 'Anime News Network', u: 'https://www.animenewsnetwork.com/all/rss.xml?ann-edition=w' }
 ];
 
 const SRC = ['All', ...FEEDS.map(f => f.n)];
@@ -132,13 +132,13 @@ const cleanText = str => {
   return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
 };
 
-// Uses wsrv.nl proxy to bypass 403 hotlink protection & serve responsive WebP
+// Safe WebP proxy through wsrv.nl to bypass 403 hotlink protection
 function getProxiedUrl(url) {
   if (!url || !url.startsWith('http')) return '';
   return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=640&fit=cover&output=webp`;
 }
 
-// Generates an interactive visual placeholder if an image is missing or blocked
+// Visual art card generated for stories without a banner
 function generatePosterCard(title, srcName) {
   return `<div class="w-full h-full flex flex-col justify-between p-5 bg-gradient-to-br from-[#0e170e] to-[#040704] border border-[#1d2a1d]">
     <div class="flex items-center justify-between">
@@ -158,101 +158,119 @@ function handleImageError(imgEl, title, srcName) {
   }
 }
 
-// 1. Fetch Official Anime Industry News with high-res art from Jikan
-async function fetchJikanArticles() {
+// Scrapes real image URLs across WordPress responsive sets, XML media tags, and enclosures
+function extractBestImage(item, rawContent) {
+  let img = item.thumbnail || (item.enclosure && item.enclosure.link);
+  
+  // If thumbnail exists but is a tiny tracking pixel, clear it
+  if (img && (img.includes('1x1') || img.includes('avatar'))) img = '';
+
+  if (!img && rawContent) {
+    // 1. Check for srcset (common in Anime Corner / WordPress)
+    const srcsetMatch = /srcset=["']([^"']+)["']/i.exec(rawContent);
+    if (srcsetMatch) {
+      const parts = srcsetMatch[1].split(',').map(s => s.trim().split(' ')[0]);
+      const valid = parts.reverse().find(u => /^https?:\/\/.+\.(jpe?g|png|webp)/i.test(u));
+      if (valid) img = valid;
+    }
+
+    // 2. Check for data-orig-file, data-lazy-src, or src
+    if (!img) {
+      const m = /<(?:img)[^>]+(?:data-orig-file|data-lazy-src|data-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(rawContent);
+      if (m && m[1] && !m[1].startsWith('data:')) img = m[1];
+    }
+  }
+
+  return (img && img.startsWith('http')) ? img : '';
+}
+
+// Dual-Hop Loader: Attempts rss2json first; falls back to AllOrigins XML parser on failure
+async function fetchFeedSafe(feedObj) {
+  // Method A: rss2json
   try {
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 6000);
-    // News articles directly written by industry reporters with guaranteed cover art
-    const res = await fetch('https://api.jikan.moe/v4/top/anime?filter=airing&limit=8&sfw=true', { signal: ctl.signal });
-    clearTimeout(to);
-    if (!res.ok) throw new Error();
-    const json = await res.json();
-    return (json.data || []).map((a, idx) => ({
-      src: 'Top Airing',
-      title: `${a.title_english || a.title}: Season Spotlight & Airing Highlights`,
-      link: a.url || `https://myanimelist.net/anime/${a.mal_id}`,
-      d: Date.now() - (idx * 2800000),
-      rawImg: a.images?.jpg?.large_image_url || a.images?.webp?.large_image_url || '',
-      txt: cleanText(a.synopsis || 'Check the latest seasonal airing schedule, reviews, and streaming platforms.').slice(0, 160)
-    }));
-  } catch (e) {
-    return [];
-  }
-}
-
-// 2. Fetch anime industry news updates
-async function fetchJikanIndustryNews() {
-  try {
-    const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), 6000);
-    // Grab latest news from Jikan's season updates
-    const res = await fetch('https://api.jikan.moe/v4/seasons/now?limit=8&sfw=true', { signal: ctl.signal });
-    clearTimeout(to);
-    if (!res.ok) throw new Error();
-    const json = await res.json();
-    return (json.data || []).slice(4).map((a, idx) => ({
-      src: 'Industry News',
-      title: `Announced: ${a.title_english || a.title} Episode Broadcast Schedule`,
-      link: a.url || `https://myanimelist.net/anime/${a.mal_id}`,
-      d: Date.now() - ((idx + 2) * 3600000),
-      rawImg: a.images?.jpg?.large_image_url || '',
-      txt: cleanText(a.synopsis || 'Official broadcast info, licensors, and episode count.').slice(0, 160)
-    }));
-  } catch(e) {
-    return [];
-  }
-}
-
-// 3. Robust RSS extraction
-async function fetchRssFeed(feedObj) {
-  try {
-    const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), 6500);
     const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feedObj.u), { signal: ctl.signal });
     clearTimeout(to);
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    if (data.status === 'ok' && Array.isArray(data.items)) {
-      return data.items.map(i => {
-        const raw = (i.description || '') + ' ' + (i.content || '');
-        const match = /<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(raw);
-        let found = i.thumbnail || (i.enclosure && i.enclosure.link) || (match && match[1]) || '';
-
-        return {
-          src: feedObj.n,
-          title: cleanText(i.title),
-          link: i.link,
-          d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
-          rawImg: found.startsWith('http') ? found : '',
-          txt: cleanText(i.description || i.content || '').slice(0, 160)
-        };
-      });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'ok' && Array.isArray(data.items) && data.items.length) {
+        return data.items.map(i => {
+          const raw = (i.description || '') + ' ' + (i.content || '');
+          return {
+            src: feedObj.n,
+            title: cleanText(i.title),
+            link: i.link,
+            d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
+            rawImg: extractBestImage(i, raw),
+            txt: cleanText(i.description || i.content || '').slice(0, 160)
+          };
+        });
+      }
     }
   } catch (e) {}
+
+  // Method B: Raw XML parsing via allorigins proxy (handles Anime Corner & ANN if rss2json fails)
+  try {
+    const ctl2 = new AbortController();
+    const to2 = setTimeout(() => ctl2.abort(), 7000);
+    const res2 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feedObj.u)}`, { signal: ctl2.signal });
+    clearTimeout(to2);
+    if (res2.ok) {
+      const wrapper = await res2.json();
+      if (wrapper && wrapper.contents) {
+        const doc = new DOMParser().parseFromString(wrapper.contents, 'text/xml');
+        const items = [...doc.querySelectorAll('item')].slice(0, 15);
+        if (items.length) {
+          return items.map(el => {
+            const desc = el.querySelector('description')?.textContent || '';
+            const content = el.getElementsByTagNameNS('*', 'encoded')[0]?.textContent || '';
+            
+            // Search custom XML namespaces: <ann:thumbnail>, <media:content>, <enclosure>
+            let mediaUrl = el.querySelector('enclosure')?.getAttribute('url')
+                        || el.getElementsByTagNameNS('*', 'content')[0]?.getAttribute('url')
+                        || el.getElementsByTagNameNS('*', 'thumbnail')[0]?.getAttribute('url');
+
+            if (!mediaUrl) {
+              mediaUrl = extractBestImage({}, desc + ' ' + content);
+            }
+
+            return {
+              src: feedObj.n,
+              title: cleanText(el.querySelector('title')?.textContent || 'Untitled'),
+              link: el.querySelector('link')?.textContent || '#',
+              d: new Date(el.querySelector('pubDate')?.textContent || '').getTime() || Date.now(),
+              rawImg: (mediaUrl && mediaUrl.startsWith('http')) ? mediaUrl : '',
+              txt: cleanText(desc || content).slice(0, 160)
+            };
+          });
+        }
+      }
+    }
+  } catch (e) {}
+
   return [];
 }
 
-async function getFeed(f) {
-  const k = 'kn_v11_' + f.n;
+async function getFeed(feedObj) {
+  const k = 'kn_v14_' + feedObj.n;
   try {
     const cached = JSON.parse(localStorage.getItem(k));
     if (cached && Date.now() - cached.t < 15 * 60 * 1000) return cached.items;
   } catch(e) {}
 
-  let items = [];
-  if (f.type === 'jikan_airing') {
-    items = await fetchJikanArticles();
-  } else if (f.type === 'jikan_news') {
-    items = await fetchJikanIndustryNews();
-  } else {
-    items = await fetchRssFeed(f);
-  }
-
+  const items = await fetchFeedSafe(feedObj);
   if (items && items.length) {
     try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), items })); } catch(e) {}
     return items;
   }
+
+  // Stale cache fallback
+  try {
+    const stale = JSON.parse(localStorage.getItem(k));
+    if (stale && stale.items) return stale.items;
+  } catch(e) {}
+
   return [];
 }
 
@@ -271,7 +289,7 @@ function skeleton() {
 
 async function load() {
   skeleton();
-  $('#status').textContent = 'Loading news with high-res media...';
+  $('#status').textContent = 'Loading news feeds from across the anime sphere...';
 
   const results = await Promise.allSettled(FEEDS.map(getFeed));
   let loaded = [];
@@ -285,7 +303,7 @@ async function load() {
     all = loaded.sort((a, b) => b.d - a.d);
     $('#status').textContent = '';
   } else {
-    $('#status').textContent = 'News feeds currently taking longer to respond. Please refresh.';
+    $('#status').textContent = 'Unable to reach news sources. Please tap Refresh.';
   }
 
   render();
