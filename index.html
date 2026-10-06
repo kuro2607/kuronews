@@ -59,7 +59,7 @@ header,main,footer{position:relative;z-index:10}
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div>
       <h1 class="text-3xl font-extrabold title-glow">Anime News Wire</h1>
-      <p class="text-sm text-[#9fb39a]">Live headlines from across the anime sphere.</p>
+      <p class="text-sm text-[#9fb39a]">Live headlines and images from verified anime publications.</p>
     </div>
     <div class="flex items-center gap-2">
       <button class="btn2 text-xs" onclick="forceReload()">
@@ -87,7 +87,7 @@ header,main,footer{position:relative;z-index:10}
 
 <footer class="max-w-7xl mx-auto px-4 py-8 mt-12 border-t border-[#1d2a1d] text-sm text-[#9fb39a]">
   <div class="flex flex-col md:flex-row items-center justify-between gap-4">
-    <p class="text-xs text-[#7e9179]">KuroNews links out to publishers. Snippets belong to their respective authors.</p>
+    <p class="text-xs text-[#7e9179]">KuroNews aggregates news feeds with full attribution to original authors.</p>
     <div class="flex flex-wrap gap-2" id="net"></div>
   </div>
 </footer>
@@ -103,10 +103,12 @@ const NET = [
 ];
 $('#net').innerHTML = NET.map(x => `<a class="chip text-xs" href="${x.u}">${x.n}</a>`).join('');
 
+// Replaced with verified media-rich feeds that include high-res artwork
 const FEEDS = [
-  { n: 'Anime News Network', u: 'https://www.animenewsnetwork.com/all/rss.xml?ann-edition=w' },
-  { n: 'MyAnimeList', u: 'https://myanimelist.net/rss/news.xml' },
-  { n: 'Anime Corner', u: 'https://animecorner.me/feed/' }
+  { n: 'Crunchyroll News', u: 'https://cr-news-api-service.prd.crunchyrollsvc.com/v1/en-US/rss' },
+  { n: 'Anime Corner', u: 'https://animecorner.me/feed/' },
+  { n: 'ComicBook Anime', u: 'https://comicbook.com/anime/rss.xml' },
+  { n: 'Anime News Network', u: 'https://www.animenewsnetwork.com/all/rss.xml?ann-edition=w' }
 ];
 
 const SRC = ['All', ...FEEDS.map(f => f.n)];
@@ -123,141 +125,67 @@ const cleanText = str => {
   return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
 };
 
-// 1. WordPress Photon CDN bypasses 403 Forbidden hotlink protection
-function getBypassUrl(rawUrl, attempt = 0) {
+// wsrv.nl proxy properly handles referrers, converts webp, and strips anti-hotlink blocks
+function getBypassUrl(rawUrl) {
   if (!rawUrl || !rawUrl.startsWith('http')) return '';
-  const clean = rawUrl.replace(/^https?:\/\//i, '');
-  
-  if (attempt === 0) {
-    return `https://i0.wp.com/${clean}`;
-  } else if (attempt === 1) {
-    return `https://images.weserv.nl/?url=${encodeURIComponent(rawUrl)}&default=false&w=640&fit=cover`;
-  } else if (attempt === 2) {
-    return rawUrl;
-  }
-  return '';
+  return `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&w=640&fit=cover&output=webp`;
 }
 
-// 2. Cascade error handler if a CDN proxy fails
 function handleImageError(imgEl) {
-  const step = parseInt(imgEl.dataset.try || '0', 10);
-  const raw = imgEl.dataset.raw || '';
-  if (step < 2 && raw) {
-    imgEl.dataset.try = step + 1;
-    imgEl.src = getBypassUrl(raw, step + 1);
-  } else {
-    imgEl.onerror = null;
-    const parent = imgEl.parentElement;
-    if (parent) {
-      parent.innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center bg-[#0d130d] text-[#22c55e]/40 p-4 border border-[#1d2a1d]">
-        <svg class="w-10 h-10 mb-1"><use href="#clover"/></svg>
-        <span class="text-[10px] tracking-wider uppercase font-bold text-[#9fb39a]">KuroNews Wire</span>
-      </div>`;
-    }
+  imgEl.onerror = null;
+  const parent = imgEl.parentElement;
+  if (parent) {
+    parent.innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center bg-[#0d130d] text-[#22c55e]/40 p-4 border border-[#1d2a1d]">
+      <svg class="w-10 h-10 mb-1"><use href="#clover"/></svg>
+      <span class="text-[10px] tracking-wider uppercase font-bold text-[#9fb39a]">Anime Wire</span>
+    </div>`;
   }
 }
 
-// 3. Deep scraper checking srcset, data-lazy-src, and custom XML namespaces
-function findImageInElement(el, rawText) {
-  let url = el.getElementsByTagNameNS('*', 'thumbnail')[0]?.getAttribute('url')
-         || el.getElementsByTagNameNS('*', 'content')[0]?.getAttribute('url')
-         || el.querySelector('enclosure[type^="image"]')?.getAttribute('url');
-
-  if (url && url.startsWith('http')) return url;
-
-  const fullContent = (rawText || '') + ' ' + (el.querySelector('description')?.textContent || '');
-  
-  const srcSetMatch = /srcset=["']([^"']+)["']/i.exec(fullContent);
-  if (srcSetMatch) {
-    const urls = srcSetMatch[1].split(',').map(s => s.trim().split(' ')[0]);
-    const valid = urls.find(u => /^https?:\/\/.+\.(jpe?g|png|webp)/i.test(u));
-    if (valid) return valid;
+// Scrapes real image URLs across enclosures, media elements, and HTML body
+function extractImg(item, rawDesc) {
+  let img = item.thumbnail || (item.enclosure && item.enclosure.link);
+  if (!img && rawDesc) {
+    const m = /<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(rawDesc);
+    if (m && m[1]) img = m[1];
   }
-
-  const imgMatch = /<(?:img)[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(fullContent);
-  if (imgMatch && imgMatch[1] && !imgMatch[1].startsWith('data:')) {
-    return imgMatch[1];
-  }
-
-  return '';
+  return (img && img.startsWith('http')) ? img : '';
 }
 
-async function fetchFeedWithFallback(feedObj) {
-  // Method 1: AllOrigins XML fetch (complete raw data extraction)
-  try {
-    const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 6500);
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feedObj.u)}`, { signal: ctl.signal });
-    clearTimeout(timeout);
-    
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.contents) {
-        const doc = new DOMParser().parseFromString(data.contents, 'text/xml');
-        const items = [...doc.querySelectorAll('item')].slice(0, 18);
-        if (items.length) {
-          return items.map(el => {
-            const desc = el.querySelector('description')?.textContent || '';
-            const content = el.getElementsByTagNameNS('*', 'encoded')[0]?.textContent || '';
-            const mediaUrl = findImageInElement(el, desc + ' ' + content);
-
-            return {
-              src: feedObj.n,
-              title: cleanText(el.querySelector('title')?.textContent || 'Untitled'),
-              link: el.querySelector('link')?.textContent || '#',
-              d: new Date(el.querySelector('pubDate')?.textContent || '').getTime() || Date.now(),
-              rawImg: mediaUrl || '',
-              txt: cleanText(desc || content).slice(0, 160)
-            };
-          });
-        }
-      }
-    }
-  } catch (e) {}
-
-  // Method 2: rss2json backup
-  try {
-    const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 5000);
-    const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feedObj.u), { signal: ctl.signal });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.status === 'ok' && Array.isArray(data.items)) {
-        return data.items.map(i => {
-          const raw = (i.description || '') + ' ' + (i.content || '');
-          const imgMatch = /<(?:img)[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(raw);
-          const foundImg = i.thumbnail || (i.enclosure && i.enclosure.link) || (imgMatch && imgMatch[1]) || '';
-
-          return {
-            src: feedObj.n,
-            title: cleanText(i.title),
-            link: i.link,
-            d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
-            rawImg: foundImg.startsWith('http') ? foundImg : '',
-            txt: cleanText(i.description || i.content || '').slice(0, 160)
-          };
-        });
-      }
-    }
-  } catch (e) {}
-
-  return [];
-}
-
-async function getFeed(feedObj) {
-  const cacheKey = 'kn_v5_' + feedObj.n;
+async function fetchFeed(feedObj) {
+  const cacheKey = 'kn_v7_' + feedObj.n;
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey));
     if (cached && Date.now() - cached.t < 15 * 60 * 1000) return cached.items;
   } catch (e) {}
 
-  const items = await fetchFeedWithFallback(feedObj);
-  if (items && items.length) {
-    try { localStorage.setItem(cacheKey, JSON.stringify({ t: Date.now(), items })); } catch (e) {}
-    return items;
-  }
+  try {
+    const ctl = new AbortController();
+    const timeout = setTimeout(() => ctl.abort(), 6500);
+    const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feedObj.u), { signal: ctl.signal });
+    clearTimeout(timeout);
 
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'ok' && Array.isArray(data.items)) {
+        const items = data.items.map(i => {
+          const rawText = (i.description || '') + ' ' + (i.content || '');
+          return {
+            src: feedObj.n,
+            title: cleanText(i.title),
+            link: i.link,
+            d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
+            rawImg: extractImg(i, rawText),
+            txt: cleanText(i.description || i.content || '').slice(0, 160)
+          };
+        });
+        try { localStorage.setItem(cacheKey, JSON.stringify({ t: Date.now(), items })); } catch (e) {}
+        return items;
+      }
+    }
+  } catch (e) {}
+
+  // Fallback to cached data if network times out
   try {
     const stale = JSON.parse(localStorage.getItem(cacheKey));
     if (stale && stale.items) return stale.items;
@@ -281,9 +209,9 @@ function skeleton() {
 
 async function load() {
   skeleton();
-  $('#status').textContent = 'Connecting to news networks...';
+  $('#status').textContent = 'Loading news with images...';
 
-  const results = await Promise.allSettled(FEEDS.map(getFeed));
+  const results = await Promise.allSettled(FEEDS.map(fetchFeed));
   let loaded = [];
   results.forEach(r => {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) {
@@ -295,7 +223,7 @@ async function load() {
     all = loaded.sort((a, b) => b.d - a.d);
     $('#status').textContent = '';
   } else {
-    $('#status').textContent = 'Unable to sync news feeds. Please check network connection.';
+    $('#status').textContent = 'Unable to load news feeds. Please try refreshing.';
   }
 
   render();
@@ -303,7 +231,7 @@ async function load() {
 
 function forceReload() {
   try {
-    FEEDS.forEach(f => localStorage.removeItem('kn_v5_' + f.n));
+    FEEDS.forEach(f => localStorage.removeItem('kn_v7_' + f.n));
   } catch (e) {}
   load();
 }
@@ -315,12 +243,9 @@ function makeImgTag(rawUrl, isHero = false) {
       <span class="text-[9px] tracking-wider uppercase font-bold text-[#9fb39a] mt-1">Anime Dispatch</span>
     </div>`;
   }
-  const proxied = getBypassUrl(rawUrl, 0);
   return `<img loading="lazy" 
                referrerpolicy="no-referrer"
-               src="${esc(proxied)}" 
-               data-raw="${esc(rawUrl)}" 
-               data-try="0" 
+               src="${esc(getBypassUrl(rawUrl))}" 
                alt="" 
                class="${isHero ? 'absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500' : 'w-full h-full object-cover'}" 
                onerror="handleImageError(this)">`;
