@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Strip referrer globally so destination CDNs don't see github.io -->
 <meta name="referrer" content="no-referrer">
 <title>KuroNews - Latest anime news in one place</title>
 <meta name="description" content="KuroNews gathers the latest anime headlines from top news sites in one clean, fast page.">
@@ -124,27 +123,22 @@ const cleanText = str => {
   return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
 };
 
-// MULTI-PROXY BYPASS SYSTEM:
-// Bypasses 403 Forbidden hotlink blocks via rotating image proxies
+// 1. WordPress Photon CDN bypasses 403 Forbidden hotlink protection
 function getBypassUrl(rawUrl, attempt = 0) {
   if (!rawUrl || !rawUrl.startsWith('http')) return '';
-  const clean = rawUrl.replace(/^http:\/\//i, 'https://');
+  const clean = rawUrl.replace(/^https?:\/\//i, '');
   
   if (attempt === 0) {
-    // Weserv cache with referrer stripping & user-agent masquerade
-    return `https://images.weserv.nl/?url=${encodeURIComponent(clean)}&default=false&w=640&fit=cover`;
+    return `https://i0.wp.com/${clean}`;
   } else if (attempt === 1) {
-    // Statically CDN image proxy
-    const noProto = clean.replace(/^https?:\/\//i, '');
-    return `https://cdn.statically.io/img/${noProto}?w=640`;
+    return `https://images.weserv.nl/?url=${encodeURIComponent(rawUrl)}&default=false&w=640&fit=cover`;
   } else if (attempt === 2) {
-    // Raw image with no-referrer
-    return clean;
+    return rawUrl;
   }
   return '';
 }
 
-// Fallback cascade when an image fails to load
+// 2. Cascade error handler if a CDN proxy fails
 function handleImageError(imgEl) {
   const step = parseInt(imgEl.dataset.try || '0', 10);
   const raw = imgEl.dataset.raw || '';
@@ -152,7 +146,6 @@ function handleImageError(imgEl) {
     imgEl.dataset.try = step + 1;
     imgEl.src = getBypassUrl(raw, step + 1);
   } else {
-    // If all proxies fail, display styled gradient placeholder
     imgEl.onerror = null;
     const parent = imgEl.parentElement;
     if (parent) {
@@ -164,29 +157,36 @@ function handleImageError(imgEl) {
   }
 }
 
-// Deep XML / HTML image scraper
-function findImageInString(str) {
-  if (!str) return '';
-  // Check for common image tags or attributes
-  const patterns = [
-    /<img[^>]+(?:src|data-src|data-original)=["']([^"']+\.(?:jpe?g|png|webp|gif)[^"']*)["']/i,
-    /https?:\/\/[^\s"'<>]+\.(?:jpe?g|png|webp)/i
-  ];
-  for (const p of patterns) {
-    const match = p.exec(str);
-    if (match) {
-      const found = match[1] || match[0];
-      if (found.startsWith('http')) return found;
-    }
+// 3. Deep scraper checking srcset, data-lazy-src, and custom XML namespaces
+function findImageInElement(el, rawText) {
+  let url = el.getElementsByTagNameNS('*', 'thumbnail')[0]?.getAttribute('url')
+         || el.getElementsByTagNameNS('*', 'content')[0]?.getAttribute('url')
+         || el.querySelector('enclosure[type^="image"]')?.getAttribute('url');
+
+  if (url && url.startsWith('http')) return url;
+
+  const fullContent = (rawText || '') + ' ' + (el.querySelector('description')?.textContent || '');
+  
+  const srcSetMatch = /srcset=["']([^"']+)["']/i.exec(fullContent);
+  if (srcSetMatch) {
+    const urls = srcSetMatch[1].split(',').map(s => s.trim().split(' ')[0]);
+    const valid = urls.find(u => /^https?:\/\/.+\.(jpe?g|png|webp)/i.test(u));
+    if (valid) return valid;
   }
+
+  const imgMatch = /<(?:img)[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(fullContent);
+  if (imgMatch && imgMatch[1] && !imgMatch[1].startsWith('data:')) {
+    return imgMatch[1];
+  }
+
   return '';
 }
 
 async function fetchFeedWithFallback(feedObj) {
-  // Method 1: AllOrigins XML fetch (parses entire feed including all media namespaces)
+  // Method 1: AllOrigins XML fetch (complete raw data extraction)
   try {
     const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 6000);
+    const timeout = setTimeout(() => ctl.abort(), 6500);
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feedObj.u)}`, { signal: ctl.signal });
     clearTimeout(timeout);
     
@@ -199,13 +199,7 @@ async function fetchFeedWithFallback(feedObj) {
           return items.map(el => {
             const desc = el.querySelector('description')?.textContent || '';
             const content = el.getElementsByTagNameNS('*', 'encoded')[0]?.textContent || '';
-            
-            // Check enclosure, media tags, and html body
-            let mediaUrl = el.querySelector('enclosure')?.getAttribute('url')
-                        || el.getElementsByTagNameNS('*', 'content')[0]?.getAttribute('url')
-                        || el.getElementsByTagNameNS('*', 'thumbnail')[0]?.getAttribute('url')
-                        || findImageInString(desc)
-                        || findImageInString(content);
+            const mediaUrl = findImageInElement(el, desc + ' ' + content);
 
             return {
               src: feedObj.n,
@@ -230,14 +224,20 @@ async function fetchFeedWithFallback(feedObj) {
     if (res.ok) {
       const data = await res.json();
       if (data.status === 'ok' && Array.isArray(data.items)) {
-        return data.items.map(i => ({
-          src: feedObj.n,
-          title: cleanText(i.title),
-          link: i.link,
-          d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
-          rawImg: i.thumbnail || (i.enclosure && i.enclosure.link) || findImageInString(i.description || i.content) || '',
-          txt: cleanText(i.description || i.content || '').slice(0, 160)
-        }));
+        return data.items.map(i => {
+          const raw = (i.description || '') + ' ' + (i.content || '');
+          const imgMatch = /<(?:img)[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(raw);
+          const foundImg = i.thumbnail || (i.enclosure && i.enclosure.link) || (imgMatch && imgMatch[1]) || '';
+
+          return {
+            src: feedObj.n,
+            title: cleanText(i.title),
+            link: i.link,
+            d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
+            rawImg: foundImg.startsWith('http') ? foundImg : '',
+            txt: cleanText(i.description || i.content || '').slice(0, 160)
+          };
+        });
       }
     }
   } catch (e) {}
@@ -246,7 +246,7 @@ async function fetchFeedWithFallback(feedObj) {
 }
 
 async function getFeed(feedObj) {
-  const cacheKey = 'kn_v4_' + feedObj.n;
+  const cacheKey = 'kn_v5_' + feedObj.n;
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey));
     if (cached && Date.now() - cached.t < 15 * 60 * 1000) return cached.items;
@@ -303,15 +303,16 @@ async function load() {
 
 function forceReload() {
   try {
-    FEEDS.forEach(f => localStorage.removeItem('kn_v4_' + f.n));
+    FEEDS.forEach(f => localStorage.removeItem('kn_v5_' + f.n));
   } catch (e) {}
   load();
 }
 
 function makeImgTag(rawUrl, isHero = false) {
   if (!rawUrl) {
-    return `<div class="w-full h-full flex items-center justify-center bg-[#0d130d] text-[#22c55e]/30 border border-[#1d2a1d]">
+    return `<div class="w-full h-full flex flex-col items-center justify-center bg-[#0d130d] text-[#22c55e]/30 border border-[#1d2a1d]">
       <svg class="${isHero ? 'w-16 h-16' : 'w-10 h-10'}"><use href="#clover"/></svg>
+      <span class="text-[9px] tracking-wider uppercase font-bold text-[#9fb39a] mt-1">Anime Dispatch</span>
     </div>`;
   }
   const proxied = getBypassUrl(rawUrl, 0);
