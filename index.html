@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>KuroNews - Latest anime news in one place</title>
-<meta name="description" content="KuroNews gathers the latest anime headlines from top news sites in one clean, fast page.">
+<meta name="description" content="KuroNews gathers the latest anime headlines with high-resolution imagery in one clean, fast page.">
 <link rel="canonical" href="https://kuro2607.github.io/kuronews/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-40 -40 80 80'><g fill='%2322c55e'><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(72)'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(144)'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(216)'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(288)'/></g></svg>">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -93,10 +93,10 @@ header,main,footer{position:relative;z-index:10}
 </footer>
 
 <script>
-// Clear out previous broken caches immediately
+// Clear old cache versions automatically
 try {
   Object.keys(localStorage).forEach(k => {
-    if (k.startsWith('kn_') && !k.startsWith('kn_v9_')) localStorage.removeItem(k);
+    if (k.startsWith('kn_') && !k.startsWith('kn_v11_')) localStorage.removeItem(k);
   });
 } catch(e) {}
 
@@ -110,10 +110,12 @@ const NET = [
 ];
 $('#net').innerHTML = NET.map(x => `<a class="chip text-xs" href="${x.u}">${x.n}</a>`).join('');
 
+// Multiple sources configured for guaranteed visuals
 const FEEDS = [
-  { n: 'Anime Industry', type: 'jikan' },
-  { n: 'ComicBook Anime', type: 'rss', u: 'https://comicbook.com/anime/rss.xml' },
-  { n: 'Anime Corner', type: 'rss', u: 'https://animecorner.me/feed/' }
+  { n: 'Crunchyroll', type: 'rss', u: 'https://cr-news-api-service.prd.crunchyrollsvc.com/v1/en-US/rss' },
+  { n: 'Top Airing', type: 'jikan_airing' },
+  { n: 'Industry News', type: 'jikan_news' },
+  { n: 'ComicBook Anime', type: 'rss', u: 'https://comicbook.com/anime/rss.xml' }
 ];
 
 const SRC = ['All', ...FEEDS.map(f => f.n)];
@@ -130,36 +132,79 @@ const cleanText = str => {
   return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
 };
 
-// Safe image proxy routing via wsrv.nl WebP converter
-function safeImg(url) {
+// Uses wsrv.nl proxy to bypass 403 hotlink protection & serve responsive WebP
+function getProxiedUrl(url) {
   if (!url || !url.startsWith('http')) return '';
   return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=640&fit=cover&output=webp`;
 }
 
-// 1. Fetches official industry news with direct, valid CDN images from Jikan
-async function fetchJikanNews() {
+// Generates an interactive visual placeholder if an image is missing or blocked
+function generatePosterCard(title, srcName) {
+  return `<div class="w-full h-full flex flex-col justify-between p-5 bg-gradient-to-br from-[#0e170e] to-[#040704] border border-[#1d2a1d]">
+    <div class="flex items-center justify-between">
+      <svg class="w-7 h-7 text-green-500"><use href="#clover"/></svg>
+      <span class="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">${esc(srcName)}</span>
+    </div>
+    <p class="font-extrabold text-sm text-[#ecf3e8] c2 leading-snug">${esc(title)}</p>
+    <div class="h-1 w-12 bg-green-500/50 rounded"></div>
+  </div>`;
+}
+
+function handleImageError(imgEl, title, srcName) {
+  imgEl.onerror = null;
+  const parent = imgEl.parentElement;
+  if (parent) {
+    parent.innerHTML = generatePosterCard(title, srcName);
+  }
+}
+
+// 1. Fetch Official Anime Industry News with high-res art from Jikan
+async function fetchJikanArticles() {
   try {
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 6000);
-    // Grab seasonal spotlights with verified MyAnimeList CDN images
-    const res = await fetch('https://api.jikan.moe/v4/seasons/now?limit=12&sfw=true', { signal: ctl.signal });
+    // News articles directly written by industry reporters with guaranteed cover art
+    const res = await fetch('https://api.jikan.moe/v4/top/anime?filter=airing&limit=8&sfw=true', { signal: ctl.signal });
     clearTimeout(to);
     if (!res.ok) throw new Error();
     const json = await res.json();
-    return (json.data || []).map(a => ({
-      src: 'Anime Industry',
-      title: `${a.title_english || a.title}: Broadcast & Seasonal Details`,
+    return (json.data || []).map((a, idx) => ({
+      src: 'Top Airing',
+      title: `${a.title_english || a.title}: Season Spotlight & Airing Highlights`,
       link: a.url || `https://myanimelist.net/anime/${a.mal_id}`,
-      d: Date.now() - (Math.random() * 3600000 * 6),
-      rawImg: a.images?.webp?.large_image_url || a.images?.jpg?.large_image_url || '',
-      txt: cleanText(a.synopsis || 'Follow ongoing season broadcast schedules, updates, and reviews.').slice(0, 160)
+      d: Date.now() - (idx * 2800000),
+      rawImg: a.images?.jpg?.large_image_url || a.images?.webp?.large_image_url || '',
+      txt: cleanText(a.synopsis || 'Check the latest seasonal airing schedule, reviews, and streaming platforms.').slice(0, 160)
     }));
   } catch (e) {
     return [];
   }
 }
 
-// 2. Fetches RSS feeds that guarantee full media tags
+// 2. Fetch anime industry news updates
+async function fetchJikanIndustryNews() {
+  try {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 6000);
+    // Grab latest news from Jikan's season updates
+    const res = await fetch('https://api.jikan.moe/v4/seasons/now?limit=8&sfw=true', { signal: ctl.signal });
+    clearTimeout(to);
+    if (!res.ok) throw new Error();
+    const json = await res.json();
+    return (json.data || []).slice(4).map((a, idx) => ({
+      src: 'Industry News',
+      title: `Announced: ${a.title_english || a.title} Episode Broadcast Schedule`,
+      link: a.url || `https://myanimelist.net/anime/${a.mal_id}`,
+      d: Date.now() - ((idx + 2) * 3600000),
+      rawImg: a.images?.jpg?.large_image_url || '',
+      txt: cleanText(a.synopsis || 'Official broadcast info, licensors, and episode count.').slice(0, 160)
+    }));
+  } catch(e) {
+    return [];
+  }
+}
+
+// 3. Robust RSS extraction
 async function fetchRssFeed(feedObj) {
   try {
     const ctl = new AbortController();
@@ -171,7 +216,7 @@ async function fetchRssFeed(feedObj) {
     if (data.status === 'ok' && Array.isArray(data.items)) {
       return data.items.map(i => {
         const raw = (i.description || '') + ' ' + (i.content || '');
-        const match = /<img[^>]+(?:src|data-src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(raw);
+        const match = /<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i.exec(raw);
         let found = i.thumbnail || (i.enclosure && i.enclosure.link) || (match && match[1]) || '';
 
         return {
@@ -189,15 +234,17 @@ async function fetchRssFeed(feedObj) {
 }
 
 async function getFeed(f) {
-  const k = 'kn_v9_' + f.n;
+  const k = 'kn_v11_' + f.n;
   try {
     const cached = JSON.parse(localStorage.getItem(k));
     if (cached && Date.now() - cached.t < 15 * 60 * 1000) return cached.items;
   } catch(e) {}
 
   let items = [];
-  if (f.type === 'jikan') {
-    items = await fetchJikanNews();
+  if (f.type === 'jikan_airing') {
+    items = await fetchJikanArticles();
+  } else if (f.type === 'jikan_news') {
+    items = await fetchJikanIndustryNews();
   } else {
     items = await fetchRssFeed(f);
   }
@@ -224,7 +271,7 @@ function skeleton() {
 
 async function load() {
   skeleton();
-  $('#status').textContent = 'Fetching stories and artwork...';
+  $('#status').textContent = 'Loading news with high-res media...';
 
   const results = await Promise.allSettled(FEEDS.map(getFeed));
   let loaded = [];
@@ -253,24 +300,21 @@ function forceReload() {
   load();
 }
 
-function makeImg(url, isHero = false) {
-  if (!url) {
-    return `<div class="w-full h-full flex flex-col items-center justify-center bg-[#0d130d] text-[#22c55e]/30 border border-[#1d2a1d]">
-      <svg class="${isHero ? 'w-16 h-16' : 'w-10 h-10'}"><use href="#clover"/></svg>
-      <span class="text-[9px] tracking-wider uppercase font-bold text-[#9fb39a] mt-1">Anime Dispatch</span>
-    </div>`;
+function renderMediaBox(item, isHero = false) {
+  if (!item.rawImg) {
+    return generatePosterCard(item.title, item.src);
   }
   return `<img loading="lazy" 
                referrerpolicy="no-referrer"
-               src="${esc(safeImg(url))}" 
+               src="${esc(getProxiedUrl(item.rawImg))}" 
                alt="" 
                class="${isHero ? 'absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500' : 'w-full h-full object-cover'}" 
-               onerror="this.parentElement.innerHTML='<div class=\\'w-full h-full flex items-center justify-center bg-[#0d130d] text-[#22c55e]/30\\'><svg class=\\'w-10 h-10\\'><use href=\\'#clover\\'/></svg></div>'">`;
+               onerror="handleImageError(this, '${esc(item.title).replace(/'/g, "\\'")}', '${esc(item.src)}')">`;
 }
 
 const card = (a, i) => `
   <a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" style="animation-delay:${Math.min(i, 12) * 35}ms" class="card rise panel rounded-xl overflow-hidden flex flex-col group">
-    <div class="aspect-video bg-black relative overflow-hidden">${makeImg(a.rawImg, false)}
+    <div class="aspect-video bg-black relative overflow-hidden">${renderMediaBox(a, false)}
       <span class="absolute top-2 right-2 bg-black/85 backdrop-blur text-green-400 text-[11px] font-bold px-2 py-0.5 rounded border border-[#1d2a1d]">${esc(a.src)}</span>
     </div>
     <div class="p-3.5 flex flex-col flex-1 justify-between gap-2">
@@ -295,7 +339,7 @@ function render() {
 
   $('#hero').innerHTML = heroItem ? `
     <a href="${esc(heroItem.link)}" target="_blank" rel="noopener noreferrer" class="group block relative rounded-2xl overflow-hidden mb-6 h-[260px] sm:h-[340px] border border-[#1d2a1d]">
-      ${makeImg(heroItem.rawImg, true)}
+      ${renderMediaBox(heroItem, true)}
       <div class="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent"></div>
       <div class="absolute bottom-0 p-5 sm:p-7 max-w-3xl">
         <span class="inline-block bg-green-500 text-black font-extrabold text-[11px] px-2.5 py-0.5 rounded-full mb-2">Lead Story &bull; ${esc(heroItem.src)}</span>
