@@ -1,109 +1,67 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KuroNews - Latest anime news in one place</title>
 <meta name="description" content="KuroNews gathers the latest anime headlines from top news sites in one clean, fast page.">
 <link rel="canonical" href="https://kuro2607.github.io/kuronews/">
 <meta name="robots" content="index, follow">
-<meta property="og:type" content="website"><meta property="og:title" content="KuroNews - Latest anime news in one place"><meta property="og:description" content="KuroNews gathers the latest anime headlines from top news sites in one clean, fast page."><meta property="og:url" content="https://kuro2607.github.io/kuronews/">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-40 -40 80 80'>
+<meta property="og:type" content="website">
+<meta property="og:title" content="KuroNews - Latest anime news in one place">
+<meta property="og:description" content="KuroNews gathers the latest anime headlines from top news sites in one clean, fast page.">
+<meta property="og:url" content="https://kuro2607.github.io/kuronews/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-40 -40 80 80'><g fill='%2322c55e'><path id='l' d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(72)'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(144)'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(216)'/><path d='M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z' transform='rotate(288)'/></g></svg>">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-:root{--g:#22c55e;--line:#1d2a1d}
+:root{--g:#22c55e;--line:#1d2a1d;--panel:#0d130d;--bg:#050805}
 html,body{max-width:100%;overflow-x:hidden}
-body{background:#050805;color:#ecf3e8;font-family:Figtree,system-ui,sans-serif}
+body{background:var(--bg);color:#ecf3e8;font-family:Figtree,system-ui,sans-serif}
+body.oled{--bg:#000000;--panel:#000000}
 h1,h2,h3,.brand{font-family:'Bricolage Grotesque',Figtree,sans-serif}
 body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(60% 45% at 85% -5%,rgba(34,197,94,.16),transparent),radial-gradient(45% 35% at 0% 35%,rgba(34,197,94,.08),transparent)}
+body.oled::before{display:none}
 header,main,footer{position:relative;z-index:10}
-.panel{background:#0d130d;border:1px solid var(--line)}
-.chip{white-space:nowrap;flex-shrink:0;border:1px solid var(--line);padding:.35rem .8rem;border-radius:999px;font-size:.85rem;color:#9fb39a;min-height:40px;display:inline-flex;align-items:center}
+.panel{background:var(--panel);border:1px solid var(--line)}
+.chip{white-space:nowrap;flex-shrink:0;border:1px solid var(--line);padding:.35rem .8rem;border-radius:999px;font-size:.85rem;color:#9fb39a;min-height:38px;display:inline-flex;align-items:center;transition:all .15s}
 .chip.on{background:var(--g);color:#031205;border-color:var(--g);font-weight:700}
 .chip:hover{border-color:var(--g)}
 .btn{background:var(--g);color:#031205;font-weight:700;border-radius:.6rem;padding:.5rem .9rem;min-height:40px;display:inline-flex;align-items:center;justify-content:center}
-.btn2{border:1px solid var(--line);border-radius:.6rem;padding:.5rem .9rem;min-height:40px;display:inline-flex;align-items:center}
+.btn2{border:1px solid var(--line);border-radius:.6rem;padding:.5rem .9rem;min-height:40px;display:inline-flex;align-items:center;gap:.4rem;color:#ecf3e8;transition:border-color .2s}
 .btn2:hover{border-color:var(--g)}
 .c2,.c3{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}.c2{-webkit-line-clamp:2}.c3{-webkit-line-clamp:3}
 input,select{font-size:16px}
-.card{transition:transform .2s,box-shadow .2s}.card:active{transform:scale(.98)}
-@media(hover:hover){.card:hover{transform:translateY(-4px);box-shadow:0 10px 30px -8px rgba(34,197,94,.5)}}
-.rise{animation:rise .5s backwards}@keyframes rise{from{opacity:0;transform:translateY(12px)}}
+.card{transition:transform .2s,box-shadow .2s,border-color .2s}.card:active{transform:scale(.98)}
+@media(hover:hover){.card:hover{transform:translateY(-4px);box-shadow:0 10px 30px -8px rgba(34,197,94,.5);border-color:var(--g)}}
+.rise{animation:rise .4s backwards}@keyframes rise{from{opacity:0;transform:translateY(12px)}}
 .title-glow{text-shadow:0 0 22px rgba(34,197,94,.45)}
 :focus-visible{outline:2px solid var(--g);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-</style></head>
-<body class="min-h-screen">
-<svg width="0" height="0" style="position:absolute"><defs><path id="leaf" d="M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z"/><symbol id="clover" viewBox="-40 -40 80 80"><g fill="currentColor"><use href="#leaf"/><use href="#leaf" transform="rotate(72)"/><use href="#leaf" transform="rotate(144)"/><use href="#leaf" transform="rotate(216)"/><use href="#leaf" transform="rotate(288)"/></g><circle r="3" fill="#050805"/></symbol></defs></svg>
-<header class="border-b border-[#1d2a1d] bg-black/90">
- <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
-  <a href="./" class="flex items-center gap-2 shrink-0"><svg class="w-9 h-9 text-green-500" style="filter:drop-shadow(0 0 8px rgba(34,197,94,.7))"><use href="#clover"/></svg><span class="brand text-2xl font-extrabold title-glow">Kuro<span class="text-green-500">News</span></span></a>
-  
- </div></header>
-<main class="max-w-7xl mx-auto px-4 py-6">
-<h1 class="text-3xl font-extrabold title-glow mb-1">Anime news</h1>
-<p class="text-sm text-[#9fb39a] mb-4">Headlines from top anime news sites, all in one place. Tap a story to read it on the original site.</p>
-<div class="flex flex-col sm:flex-row gap-3 mb-4">
-  <input id="s" type="search" placeholder="Filter headlines" aria-label="Filter headlines" class="rounded-xl bg-[#0d130d] border border-[#1d2a1d] px-4 py-2 outline-none focus:border-green-500 sm:w-72" oninput="q=this.value.trim().toLowerCase();shown=12;render()">
-  <div id="chips" class="flex gap-2 overflow-x-auto"></div>
-</div>
-<div id="hero"></div>
-<div id="grid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-<p id="status" class="text-sm text-[#9fb39a] mt-4"></p>
-<div class="text-center mt-4"><button id="more" class="btn2 hidden" onclick="shown+=12;render()">Load more</button></div>
-</main>
-<footer class="max-w-7xl mx-auto px-4 py-8 mt-6 border-t border-[#1d2a1d] text-sm text-[#9fb39a]"><p class="mb-3" id="note"></p><div class="flex flex-wrap gap-2" id="net"></div></footer>
-<script>
-const $=s=>document.querySelector(s);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const NET=[{n:'KuroWatch',u:'https://kuro2607.github.io/kuro/'},{n:'KuroNews',u:'https://kuro2607.github.io/kuronews/'},{n:'KuroManga',u:'https://kuro2607.github.io/kuromanga/'}];
-$('#net').innerHTML=NET.map(x=>`<a class="chip" href="${x.u}">${x.n}</a>`).join('');
+</style>
+</head>
+<body class="min-h-screen pb-12">
+<svg width="0" height="0" style="position:absolute"><defs>
+<path id="leaf" d="M0 0C-18-6-20-30-7-32C-3-32.5 0-29 0-26C0-29 3-32.5 7-32C20-30 18-6 0 0Z"/>
+<symbol id="clover" viewBox="-40 -40 80 80"><g fill="currentColor"><use href="#leaf"/><use href="#leaf" transform="rotate(72)"/><use href="#leaf" transform="rotate(144)"/><use href="#leaf" transform="rotate(216)"/><use href="#leaf" transform="rotate(288)"/></g><circle r="3" fill="#050805"/></symbol>
+</defs></svg>
 
-$('#note').textContent='KuroNews links to the original publishers and shows only short excerpts. All articles belong to their authors.';
-const FEEDS=[
- {n:'Anime News Network',u:'https://www.animenewsnetwork.com/all/rss.xml?ann-edition=w'},
- {n:'MyAnimeList',u:'https://myanimelist.net/rss/news.xml'},
- {n:'Anime Corner',u:'https://animecorner.me/feed/'}];
-const SRC=['All',...FEEDS.map(f=>f.n)];
-let all=[],src=0,q='',shown=12;
-const ago=t=>{const m=(Date.now()-t)/6e4;return m<60?Math.max(1,m|0)+' min ago':m<1440?(m/60|0)+' h ago':(m/1440|0)+' d ago'};
-const plain=h=>new DOMParser().parseFromString(h||'','text/html').body.textContent.replace(/\s+/g,' ').trim();
-async function feed(f){
-  const k='kn_'+f.n;let c;try{c=JSON.parse(localStorage.getItem(k))}catch(e){}
-  if(c&&Date.now()-c.t<9e5)return c.items;
-  try{
-    const r=await fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(f.u));
-    const j=await r.json();if(j.status!=='ok')throw new Error('feed');
-    const items=j.items.filter(i=>/^https?:\/\//.test(i.link)).map(i=>({
-      src:f.n,title:plain(i.title),link:i.link,
-      d:new Date((i.pubDate||'').replace(' ','T')+'Z').getTime()||Date.now(),
-      img:[i.thumbnail,i.enclosure&&i.enclosure.link,(/<img[^>]+src=["']([^"']+)/.exec(i.description||i.content||'')||[])[1]].find(u=>u&&u.startsWith('https://'))||'',
-      txt:plain(i.description).slice(0,170)}));
-    try{localStorage.setItem(k,JSON.stringify({t:Date.now(),items}))}catch(e){}
-    return items;
-  }catch(e){if(c)return c.items;throw e}
-}
-async function load(){
-  $('#status').textContent='Loading the latest news...';
-  const r=await Promise.allSettled(FEEDS.map(feed));
-  all=r.flatMap(x=>x.status==='fulfilled'?x.value:[]).sort((a,b)=>b.d-a.d);
-  const bad=r.filter(x=>x.status==='rejected').length;
-  $('#status').textContent=!all.length?'Could not load news right now. Check your connection and try again in a minute.':bad?bad+' source(s) are unavailable at the moment.':'';
-  render();
-}
-const img=a=>a.img?`<img loading="lazy" src="${esc(a.img)}" alt="" class="w-full h-full object-cover">`:'<div class="w-full h-full flex items-center justify-center text-green-500/40"><svg class="w-16 h-16"><use href="#clover"/></svg></div>';
-const card=a=>`<a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" class="card rise panel rounded-xl overflow-hidden flex flex-col">
-  <div class="aspect-video bg-black">${img(a)}</div>
-  <div class="p-3 flex flex-col gap-1.5"><p class="text-xs text-green-400 font-bold">${esc(a.src)} - ${ago(a.d)}</p>
-  <h3 class="font-bold c3">${esc(a.title)}</h3><p class="text-sm text-[#9fb39a] c3">${esc(a.txt)}</p></div></a>`;
-function render(){
-  $('#chips').innerHTML=SRC.map((n,i)=>`<button class="chip ${i===src?'on':''}" onclick="src=${i};shown=12;render()">${esc(n)}</button>`).join('');
-  const L=all.filter(a=>(!src||a.src===SRC[src])&&(!q||(a.title+' '+a.txt).toLowerCase().includes(q)));
-  const h=!q&&shown===12?L.find(a=>a.img):null,rest=L.filter(a=>a!==h);
-  $('#hero').innerHTML=h?`<a href="${esc(h.link)}" target="_blank" rel="noopener noreferrer" class="block relative rounded-3xl overflow-hidden mb-4 h-[260px] sm:h-[360px] border border-[#1d2a1d]">
-    <img src="${esc(h.img)}" alt="" class="absolute inset-0 w-full h-full object-cover"><div class="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
-    <div class="absolute bottom-0 p-4 sm:p-8"><p class="text-green-400 text-sm font-bold">Top story - ${esc(h.src)}</p><h2 class="text-xl sm:text-4xl font-extrabold c3">${esc(h.title)}</h2></div></a>`:'';
-  $('#grid').innerHTML=rest.slice(0,shown).map(card).join('')||(all.length?'<p class="text-[#9fb39a]">No headlines match your filter.</p>':'');
-  $('#more').classList.toggle('hidden',rest.length<=shown);
-}
-load();
+<header class="border-b border-[#1d2a1d] bg-black/90 backdrop-blur sticky top-0 z-40">
+ <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+  <div class="flex items-center gap-4">
+    <a href="./" class="flex items-center gap-2 shrink-0">
+      <svg class="w-9 h-9 text-green-500" style="filter:drop-shadow(0 0 8px rgba(34,197,94,.7))"><use href="#clover"/></svg>
+      <span class="brand text-2xl font-extrabold title-glow">Kuro<span class="text-green-500">News</span></span>
+    </a>
+    <span class="hidden sm:inline-block px-2.5 py-0.5 text-xs font-semibold rounded-full border border-[#1d2a1d] text-[#9fb39a]">Live RSS Aggregator</span>
+  </div>
 
-</script></body></html>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="https://kuro2607.github.io/hub/" class="chip">KuroHub</a>
+    <a href="https://kuro2607.github.io/kuro/" class="chip">KuroWatch</a>
+    <button class="chip" onclick="toggleOled()" id="oled-btn">OLED off</button>
+  </div>
+ </div>
+</header>
+
+<main class="max-w-7xl mx-auto
