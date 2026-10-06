@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- CRITICAL: Prevents publishers from blocking image requests (403 Forbidden) -->
+<meta name="referrer" content="no-referrer">
 <title>KuroNews - Latest anime news in one place</title>
 <meta name="description" content="KuroNews gathers the latest anime headlines from top news sites in one clean, fast page.">
 <link rel="canonical" href="https://kuro2607.github.io/kuronews/">
@@ -113,33 +115,6 @@ const FEEDS = [
   { n: 'Anime Corner', u: 'https://animecorner.me/feed/' }
 ];
 
-const BACKUP_NEWS = [
-  {
-    src: 'Anime News Network',
-    title: 'Crunchyroll & Ani-One Announce Global Spring Anime Simulcast Lineups',
-    link: 'https://www.animenewsnetwork.com',
-    d: Date.now() - 3600000,
-    img: '',
-    txt: 'Major licensors reveal official streaming schedules and regional availability for upcoming seasonal broadcasts.'
-  },
-  {
-    src: 'MyAnimeList',
-    title: 'Seasonal Anime Rankings: Weekly Community Top Rated Broadcasts',
-    link: 'https://myanimelist.net',
-    d: Date.now() - 7200000,
-    img: '',
-    txt: 'Check the highest scored airing episodes and trending discussions across the global community this week.'
-  },
-  {
-    src: 'Anime Corner',
-    title: 'Weekly Anime Poll Results Announced: Fans Vote Top Characters and Episodes',
-    link: 'https://animecorner.me',
-    d: Date.now() - 10800000,
-    img: '',
-    txt: 'Over forty thousand fans cast ballots for episode rankings and seasonal awards.'
-  }
-];
-
 const SRC = ['All', ...FEEDS.map(f => f.n)];
 let all = [], src = 0, q = '', shown = 12;
 
@@ -154,8 +129,24 @@ const cleanText = str => {
   return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
 };
 
+// Extracts images from RSS items across all formats (media tags, enclosures, HTML img tags)
+function extractImg(item, rawDesc) {
+  let img = item.thumbnail || (item.enclosure && item.enclosure.link);
+  if (!img && rawDesc) {
+    const m = /<img[^>]+(?:src|data-src)=["']([^"']+)["']/i.exec(rawDesc);
+    if (m && m[1]) img = m[1];
+  }
+  return (img && img.startsWith('http')) ? img : '';
+}
+
+// Proxies hotlink-protected images through wsrv.nl to bypass 403 Forbidden errors
+function safeImgUrl(url) {
+  if (!url) return '';
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=640&fit=cover&output=webp`;
+}
+
 async function fetchWithFallback(url) {
-  // 1. Try primary CORS-friendly RSS JSON converter
+  // 1. Try rss2json API
   try {
     const ctl = new AbortController();
     const timeout = setTimeout(() => ctl.abort(), 6000);
@@ -168,14 +159,14 @@ async function fetchWithFallback(url) {
           title: cleanText(i.title),
           link: i.link,
           d: new Date((i.pubDate || '').replace(' ', 'T') + 'Z').getTime() || Date.now(),
-          img: [i.thumbnail, i.enclosure && i.enclosure.link, (/<img[^>]+src=["']([^"']+)/.exec(i.description || i.content || '') || [])[1]].find(u => u && u.startsWith('https://')) || '',
+          img: extractImg(i, i.description || i.content),
           txt: cleanText(i.description || i.content || '').slice(0, 160)
         }));
       }
     }
   } catch (e) {}
 
-  // 2. Secondary raw XML fallback via AllOrigins proxy
+  // 2. Secondary fallback via raw XML parsed through AllOrigins
   try {
     const ctl2 = new AbortController();
     const timeout2 = setTimeout(() => ctl2.abort(), 7000);
@@ -188,13 +179,24 @@ async function fetchWithFallback(url) {
       if (items.length) {
         return items.map(el => {
           const desc = el.querySelector('description')?.textContent || '';
-          const imgMatch = (/<img[^>]+src=["']([^"']+)/.exec(desc) || [])[1] || el.querySelector('enclosure')?.getAttribute('url') || '';
+          const content = el.getElementsByTagNameNS('*', 'encoded')[0]?.textContent || '';
+          
+          let mediaUrl = el.getElementsByTagNameNS('*', 'content')[0]?.getAttribute('url')
+                      || el.getElementsByTagNameNS('*', 'thumbnail')[0]?.getAttribute('url')
+                      || el.querySelector('enclosure')?.getAttribute('url')
+                      || '';
+
+          if (!mediaUrl) {
+            const m = /<img[^>]+(?:src|data-src)=["']([^"']+)["']/i.exec(desc + ' ' + content);
+            if (m && m[1]) mediaUrl = m[1];
+          }
+
           return {
             title: cleanText(el.querySelector('title')?.textContent || 'Untitled'),
             link: el.querySelector('link')?.textContent || '#',
             d: new Date(el.querySelector('pubDate')?.textContent || '').getTime() || Date.now(),
-            img: imgMatch.startsWith('https://') ? imgMatch : '',
-            txt: cleanText(desc).slice(0, 160)
+            img: (mediaUrl && mediaUrl.startsWith('http')) ? mediaUrl : '',
+            txt: cleanText(desc || content).slice(0, 160)
           };
         });
       }
@@ -205,7 +207,7 @@ async function fetchWithFallback(url) {
 }
 
 async function getFeed(f) {
-  const k = 'kn_v2_' + f.n;
+  const k = 'kn_v3_' + f.n;
   try {
     const cached = JSON.parse(localStorage.getItem(k));
     if (cached && Date.now() - cached.t < 20 * 60 * 1000) return cached.items;
@@ -218,13 +220,12 @@ async function getFeed(f) {
     return tagged;
   }
 
-  // If live fetch fails, try stale cached data before failing completely
   try {
     const stale = JSON.parse(localStorage.getItem(k));
     if (stale && stale.items) return stale.items;
   } catch (e) {}
 
-  throw new Error('Unavailable');
+  return [];
 }
 
 function skeleton() {
@@ -256,9 +257,7 @@ async function load() {
     all = loaded.sort((a, b) => b.d - a.d);
     $('#status').textContent = '';
   } else {
-    // If every network call fails, display graceful backup stories so the page is never blank
-    all = BACKUP_NEWS;
-    $('#status').textContent = 'Live feed APIs are currently slow or blocked. Showing recent industry highlights.';
+    $('#status').textContent = 'Live news feeds are temporarily unavailable. Please retry shortly.';
   }
 
   render();
@@ -266,18 +265,24 @@ async function load() {
 
 function forceReload() {
   try {
-    FEEDS.forEach(f => localStorage.removeItem('kn_v2_' + f.n));
+    FEEDS.forEach(f => localStorage.removeItem('kn_v3_' + f.n));
   } catch (e) {}
   load();
 }
 
-const img = a => a.img 
-  ? `<img loading="lazy" src="${esc(a.img)}" alt="" class="w-full h-full object-cover">` 
+// Fallback to placeholder if an image fails to load
+function onImgError(el) {
+  el.onerror = null;
+  el.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center text-green-500/20 bg-[#080d08]"><svg class="w-12 h-12"><use href="#clover"/></svg></div>';
+}
+
+const renderMedia = a => a.img 
+  ? `<img loading="lazy" referrerpolicy="no-referrer" src="${esc(safeImgUrl(a.img))}" alt="" class="w-full h-full object-cover" onerror="onImgError(this)">` 
   : '<div class="w-full h-full flex items-center justify-center text-green-500/20 bg-[#080d08]"><svg class="w-12 h-12"><use href="#clover"/></svg></div>';
 
 const card = (a, i) => `
   <a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" style="animation-delay:${Math.min(i, 12) * 35}ms" class="card rise panel rounded-xl overflow-hidden flex flex-col group">
-    <div class="aspect-video bg-black relative overflow-hidden">${img(a)}
+    <div class="aspect-video bg-black relative overflow-hidden">${renderMedia(a)}
       <span class="absolute top-2 right-2 bg-black/85 backdrop-blur text-green-400 text-[11px] font-bold px-2 py-0.5 rounded border border-[#1d2a1d]">${esc(a.src)}</span>
     </div>
     <div class="p-3.5 flex flex-col flex-1 justify-between gap-2">
@@ -302,7 +307,7 @@ function render() {
 
   $('#hero').innerHTML = heroItem ? `
     <a href="${esc(heroItem.link)}" target="_blank" rel="noopener noreferrer" class="group block relative rounded-2xl overflow-hidden mb-6 h-[260px] sm:h-[340px] border border-[#1d2a1d]">
-      <img src="${esc(heroItem.img)}" alt="" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+      <img src="${esc(safeImgUrl(heroItem.img))}" referrerpolicy="no-referrer" alt="" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="onImgError(this)">
       <div class="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent"></div>
       <div class="absolute bottom-0 p-5 sm:p-7 max-w-3xl">
         <span class="inline-block bg-green-500 text-black font-extrabold text-[11px] px-2.5 py-0.5 rounded-full mb-2">Lead Story &bull; ${esc(heroItem.src)}</span>
@@ -324,7 +329,6 @@ try {
   if (localStorage.getItem('kn_oled') === 'true') toggleOled();
 } catch (e) {}
 
-// Initial run
 load();
 </script>
 </body>
